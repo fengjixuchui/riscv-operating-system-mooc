@@ -1,12 +1,17 @@
-# save all General-Purpose(GP) registers to context
+# Save all General-Purpose(GP) registers to context.
 # struct context *base = &ctx_task;
 # base->ra = ra;
 # ......
+# These GP registers to be saved don't include gp
+# and tp, because they are not caller-saved or
+# callee-saved. These two registers are often used
+# for special purpose. For example, in RVOS, 'tp'
+# (aka "thread pointer") is used to store hartid,
+# which is a global value and would not be changed
+# during context-switch.
 .macro reg_save base
 	sw ra, 0(\base)
 	sw sp, 4(\base)
-	sw gp, 8(\base)
-	sw tp, 12(\base)
 	sw t0, 16(\base)
 	sw t1, 20(\base)
 	sw t2, 24(\base)
@@ -39,14 +44,13 @@
 .endm
 
 # restore all General-Purpose(GP) registers from the context
+# except gp & tp.
 # struct context *base = &ctx_task;
 # ra = base->ra;
 # ......
 .macro reg_restore base
 	lw ra, 0(\base)
 	lw sp, 4(\base)
-	lw gp, 8(\base)
-	lw tp, 12(\base)
 	lw t0, 16(\base)
 	lw t1, 20(\base)
 	lw t2, 24(\base)
@@ -77,16 +81,18 @@
 .endm
 
 # Something to note about save/restore:
-# - We use mscratch to hold a pointer to context of previous task
+# - We use mscratch to hold a pointer to context of current task
 # - We use t6 as the 'base' for reg_save/reg_restore, because it is the
 #   very bottom register (x31) and would not be overwritten during loading.
+#   Note: CSRs(mscratch) can not be used as 'base' due to load/restore
+#   instruction only accept general purpose registers.
 
 .text
 
 # interrupts and exceptions while in machine mode come here.
 .globl trap_vector
 # the trap vector base address must always be aligned on a 4-byte boundary
-.align 4
+.balign 4
 trap_vector:
 	# save context(registers).
 	csrrw	t6, mscratch, t6	# swap t6 and mscratch
@@ -123,7 +129,7 @@ trap_vector:
 # void switch_to(struct context *next);
 # a0: pointer to the context of the next task
 .globl switch_to
-.align 4
+.balign 4
 switch_to:
 	# switch mscratch to point to the context of the next task
 	csrw	mscratch, a0

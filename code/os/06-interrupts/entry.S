@@ -1,12 +1,17 @@
-# save all General-Purpose(GP) registers to context
+# Save all General-Purpose(GP) registers to context.
 # struct context *base = &ctx_task;
 # base->ra = ra;
 # ......
+# These GP registers to be saved don't include gp
+# and tp, because they are not caller-saved or
+# callee-saved. These two registers are often used
+# for special purpose. For example, in RVOS, 'tp'
+# (aka "thread pointer") is used to store hartid,
+# which is a global value and would not be changed
+# during context-switch.
 .macro reg_save base
 	sw ra, 0(\base)
 	sw sp, 4(\base)
-	sw gp, 8(\base)
-	sw tp, 12(\base)
 	sw t0, 16(\base)
 	sw t1, 20(\base)
 	sw t2, 24(\base)
@@ -39,14 +44,13 @@
 .endm
 
 # restore all General-Purpose(GP) registers from the context
+# except gp & tp.
 # struct context *base = &ctx_task;
 # ra = base->ra;
 # ......
 .macro reg_restore base
 	lw ra, 0(\base)
 	lw sp, 4(\base)
-	lw gp, 8(\base)
-	lw tp, 12(\base)
 	lw t0, 16(\base)
 	lw t1, 20(\base)
 	lw t2, 24(\base)
@@ -77,16 +81,18 @@
 .endm
 
 # Something to note about save/restore:
-# - We use mscratch to hold a pointer to context of previous task
+# - We use mscratch to hold a pointer to context of current task
 # - We use t6 as the 'base' for reg_save/reg_restore, because it is the
 #   very bottom register (x31) and would not be overwritten during loading.
+#   Note: CSRs(mscratch) can not be used as 'base' due to load/restore
+#   instruction only accept general purpose registers.
 
 .text
 
 # interrupts and exceptions while in machine mode come here.
 .globl trap_vector
 # the trap vector base address must always be aligned on a 4-byte boundary
-.align 4
+.balign 4
 trap_vector:
 	# save context(registers).
 	csrrw	t6, mscratch, t6	# swap t6 and mscratch
@@ -119,10 +125,10 @@ trap_vector:
 # void switch_to(struct context *next);
 # a0: pointer to the context of the next task
 .globl switch_to
-.align 4
+.balign 4
 switch_to:
 	csrrw	t6, mscratch, t6	# swap t6 and mscratch
-	beqz	t6, 1f			# Notice: the first time switch_to() is
+	beqz	t6, 1f			# Note: the first time switch_to() is
 	                                # called, mscratch is initialized as zero
 					# (in sched_init()), which makes t6 zero,
 					# and that's the special case we have to
@@ -131,7 +137,7 @@ switch_to:
 
 	# Save the actual t6 register, which we swapped into
 	# mscratch
-	mv	t5, t6		# t5 points to the context of next task
+	mv	t5, t6		# t5 points to the context of current task
 	csrr	t6, mscratch	# read t6 back from mscratch
 	sw	t6, 120(t5)	# save t6 with t5 as base
 
